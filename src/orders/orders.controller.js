@@ -11,9 +11,14 @@ const nextId = require("../utils/nextId");
 
 function bodyHas(properyName) {
   return function (req, res, next) {
-    const { data = {} } = req.body;
 
-    if (data[properyName]) {
+    // Check res.locals.requestBody already set or not (it can be set by isOrderIdMatching or previous bodyHas calls)
+    if(typeof res.locals.requestBody === 'undefined') {
+      const { data = {} } = req.body;
+      res.locals.requestBody = data; // Storing request body in res.locals for other middlewares and handler functions to use
+    }
+
+    if (res.locals.requestBody[properyName]) {
       return next();
     }
     next({ 
@@ -38,10 +43,9 @@ function orderExists(req, res, next) {
 }
 
 function validateDishes(req, res, next) {
-  const { data = { } = {} } = req.body;
 
   // Ensure dishes is an Array and it is not EMPTY
-  if(!Array.isArray(data.dishes) || data.dishes.length === 0) {
+  if(!Array.isArray(res.locals.requestBody.dishes) || res.locals.requestBody.dishes.length === 0) {
     return next({
       status: 400,
       message: `Order must include at least one dish`
@@ -49,7 +53,7 @@ function validateDishes(req, res, next) {
   }
 
   // Validate the quantity specified within all of the dishes is valid
-  data.dishes.forEach((dish, index) => {
+  res.locals.requestBody.dishes.forEach((dish, index) => {
     if(!dish.quantity || typeof dish.quantity !== 'number' || Number(dish.quantity) < 1) {
       return next({
         status: 400,
@@ -61,7 +65,10 @@ function validateDishes(req, res, next) {
 }
 
 function isOrderIdMatching(req, res, next) {
-  const { data = {} = {} } = req.body;
+  const { data = {} } = req.body;
+
+  // Storing request body in res.locals for other middlewares and handler functions to use
+  res.locals.requestBody = data;
 
   // Nothing to validate if ID is not provided
   if(!data.id) {
@@ -82,17 +89,17 @@ function isOrderIdMatching(req, res, next) {
 const validStatus = ["pending", "preparing", "out-for-delivery", "delivered"];
 
 function validateOrderStatus(req, res, next) {
-  const { data = {} } = req.body;
 
-  if(!data.status || data.status === "" || !validStatus.includes(data.status)) {
+  // Check status match any of the valid statuses, otherwise return error
+  if(!res.locals.requestBody.status || res.locals.requestBody.status === "" || !validStatus.includes(res.locals.requestBody.status)) {
     next({
       status: 400,
       message: `Order must have a status of pending, preparing, out-for-delivery, delivered`
     });
   }
 
-  // Check for DELIVERY status in specific as this is VALID but cannot be UPDATED.
-  if (data.status === "delivered") {
+  // Check for "delivered" status orders (they are valid but cannot be updated)
+  if (res.locals.requestBody.status === "delivered") {
     next({
       status: 400,
       message: `A delivered order cannot be changed`
@@ -102,9 +109,9 @@ function validateOrderStatus(req, res, next) {
 }
 
 function isPendingStatus(req, res, next) {
-  const order = res.locals.order;
 
-  if(order.status === "pending") {
+  // Ensure only 'pending' status orders can be deleted
+  if(res.locals.order.status === "pending") {
     return next();
   }
   next({
@@ -123,7 +130,9 @@ function list(req, res, next) {
 
 // POST: "/orders"
 function create(req, res) {
-  const { data: { deliverTo, mobileNumber, status, dishes } = {} } = req.body;
+
+  // Using res.locals.requestBody to access request body data
+  const { deliverTo, mobileNumber, status, dishes } = res.locals.requestBody;
 
   const newOrder = {
     id: nextId(), // Using UTILS to generate ID
@@ -143,8 +152,10 @@ function read(req, res, next) {
 
 // PUT: "/orders/:orderId"
 function update(req, res) {
+
+  // Using res.locals.requestBody to access request body data
+  const { deliverTo, mobileNumber, status, dishes } = res.locals.requestBody;
   const foundOrder = res.locals.order;
-  const { data: { deliverTo, mobileNumber, status, dishes } = {} } = req.body;
 
   // Updated the existing order ("id" is excluded to prevent it from being overriden).
   foundOrder.deliverTo = deliverTo;
@@ -157,8 +168,9 @@ function update(req, res) {
 
 // DELETE: "/orders/:orderId"
 function destroy(req, res, next) {
-  const { orderId } = req.params;
-  const index = orders.findIndex((order) => order.id === orderId);
+
+  // Using res.locals.order to access the order's information (id)
+  const index = orders.findIndex((order) => order.id === res.locals.order.id);
   
   if (index > -1) {
     orders.splice(index, 1);

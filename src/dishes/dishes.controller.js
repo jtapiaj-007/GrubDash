@@ -11,9 +11,14 @@ const nextId = require("../utils/nextId");
 
 function bodyHas(properyName) {
   return function (req, res, next) {
-    const { data = {} } = req.body;
 
-    if (data[properyName]) {
+    // Check res.locals.requestBody already set or not (it can be set by isDishIdMatching or previous bodyHas calls)
+    if(typeof res.locals.requestBody === 'undefined') {
+      const { data = {} } = req.body;
+      res.locals.requestBody = data; // Storing request body in res.locals for other middlewares and handler functions to use
+    }
+
+    if (res.locals.requestBody[properyName]) {
       return next();
     }
     next({ 
@@ -24,9 +29,8 @@ function bodyHas(properyName) {
 }
 
 function validateDishPrice(req, res, next) {
-  const { data = {} = {} } = req.body;
-  
-  if(typeof data.price !== 'number' || Number(data.price) < 1) {
+
+  if(typeof res.locals.requestBody.price !== 'number' || Number(res.locals.requestBody.price) < 1) {
     next({
       status: 400,
       message: `Dish must have a price that is an integer greater than 0`
@@ -50,13 +54,17 @@ function dishExists(req, res, next) {
 }
 
 function isDishIdMatching(req, res, next) {
-  const { data = {} = {} } = req.body;
+  const { data = {} } = req.body;
+
+  // Storing request body in res.locals for other middlewares and handler functions to use
+  res.locals.requestBody = data;
   
   // Nothing to validate if ID is not provided
   if(!data.id) {
     return next();
   }
 
+  // If ID is provided, it must match the ID of the dish (passed within the URL)
   if(data.id === res.locals.dish.id) {
     return next();
   }
@@ -76,7 +84,9 @@ function list(req, res) {
 
 // POST: "/dishes"
 function create(req, res) {
-  const { data: { name, description, image_url, price } = {} } = req.body;
+
+  // Using res.locals.requestBody to access request body data
+  const { name, description, image_url, price } = res.locals.requestBody;
 
   const newDish = {
     id: nextId(), // Using UTILS to generate ID
@@ -96,8 +106,10 @@ function read(req, res) {
 
 // PUT: "/dishes/:dishId"
 function update(req, res) {
+
+  // Using res.locals.requestBody to access request body data
+  const { name, description, image_url, price } = res.locals.requestBody;
   const foundDish = res.locals.dish;
-  const { data: { name, description, image_url, price } = {} } = req.body;
 
   // Updated the existing dish ("id" is excluded to prevent it from being overriden).
   foundDish.name = name;
